@@ -1,0 +1,194 @@
+IBM Applied Data Science Capstone Course by Coursera
+Week 5 Final Report
+
+import numpy as np # library to handle data in a vectorized manner
+
+import pandas as pd # library for data analsysis
+pd.set_option("display.max_columns", None)
+pd.set_option("display.max_rows", None)
+
+import json # library to handle JSON files
+
+from geopy.geocoders import Nominatim # convert an address into latitude and longitude values
+import geocoder # to get coordinates
+
+import requests # library to handle requests
+from bs4 import BeautifulSoup # library to parse HTML and XML documents
+
+from pandas.io.json import json_normalize # tranform JSON file into a pandas dataframe
+
+# Matplotlib and associated plotting modules
+import matplotlib.cm as cm
+import matplotlib.colors as colors
+
+# import k-means from clustering stage
+from sklearn.cluster import KMeans
+
+import folium # map rendering library
+
+print("Libraries imported.")
+
+
+
+# send the GET request
+data = requests.get("https://en.wikipedia.org/wiki/Category:Suburbs_in_Kuala_Lumpur").text
+# parse data from the html into a beautifulsoup object
+soup = BeautifulSoup(data, 'html.parser')
+# create a list to store neighborhood data
+neighborhoodList = []
+# append the data into the list
+for row in soup.find_all("div", class_="mw-category")[0].findAll("li"):
+    neighborhoodList.append(row.text)
+# create a new DataFrame from the list
+kl_df = pd.DataFrame({"Neighborhood": neighborhoodList})
+
+kl_df.head()
+
+
+# print the number of rows of the dataframe
+kl_df.shape
+
+# define a function to get coordinates
+def get_latlng(neighborhood):
+    # initialize your variable to None
+    lat_lng_coords = None
+    # loop until you get the coordinates
+    while(lat_lng_coords is None):
+        g = geocoder.arcgis('{}, Kuala Lumpur, Malaysia'.format(neighborhood))
+        lat_lng_coords = g.latlng
+    return lat_lng_coords
+    
+    
+    # create temporary dataframe to populate the coordinates into Latitude and Longitude
+df_coords = pd.DataFrame(coords, columns=['Latitude', 'Longitude'])
+
+# merge the coordinates into the original dataframe
+kl_df['Latitude'] = df_coords['Latitude']
+kl_df['Longitude'] = df_coords['Longitude']
+
+# check the neighborhoods and the coordinates
+print(kl_df.shape)
+kl_df
+
+# create map of Toronto using latitude and longitude values
+map_kl = folium.Map(location=[latitude, longitude], zoom_start=11)
+
+# add markers to map
+for lat, lng, neighborhood in zip(kl_df['Latitude'], kl_df['Longitude'], kl_df['Neighborhood']):
+    label = '{}'.format(neighborhood)
+    label = folium.Popup(label, parse_html=True)
+    folium.CircleMarker(
+        [lat, lng],
+        radius=5,
+        popup=label,
+        color='blue',
+        fill=True,
+        fill_color='#3186cc',
+        fill_opacity=0.7).add_to(map_kl)  
+    
+map_kl
+
+
+# define Foursquare Credentials and Version
+CLIENT_ID = 'your Foursquare ID' # your Foursquare ID
+CLIENT_SECRET = 'your Foursquare Secret' # your Foursquare Secret
+VERSION = '20180605' # Foursquare API version
+
+print('Your credentails:')
+print('CLIENT_ID: ' + CLIENT_ID)
+print('CLIENT_SECRET:' + CLIENT_SECRET)
+
+
+radius = 2000
+LIMIT = 100
+
+venues = []
+
+for lat, long, neighborhood in zip(kl_df['Latitude'], kl_df['Longitude'], kl_df['Neighborhood']):
+    
+    # create the API request URL
+    url = "https://api.foursquare.com/v2/venues/explore?client_id={}&client_secret={}&v={}&ll={},{}&radius={}&limit={}".format(
+        CLIENT_ID,
+        CLIENT_SECRET,
+        VERSION,
+        lat,
+        long,
+        radius, 
+        LIMIT)
+    
+    # make the GET request
+    results = requests.get(url).json()["response"]['groups'][0]['items']
+    
+    # return only relevant information for each nearby venue
+    for venue in results:
+        venues.append((
+            neighborhood,
+            lat, 
+            long, 
+            venue['venue']['name'], 
+            venue['venue']['location']['lat'], 
+            venue['venue']['location']['lng'],  
+            venue['venue']['categories'][0]['name']))
+            
+# convert the venues list into a new DataFrame
+venues_df = pd.DataFrame(venues)
+
+# define the column names
+venues_df.columns = ['Neighborhood', 'Latitude', 'Longitude', 'VenueName', 'VenueLatitude', 'VenueLongitude', 'VenueCategory']
+
+print(venues_df.shape)
+venues_df.head()
+
+print('There are {} uniques categories.'.format(len(venues_df['VenueCategory'].unique())))
+There are 304 uniques categories.
+# print out the list of categories
+venues_df['VenueCategory'].unique()
+# one hot encoding
+kl_onehot = pd.get_dummies(venues_df[['VenueCategory']], prefix="", prefix_sep="")
+
+# add neighborhood column back to dataframe
+kl_onehot['Neighborhoods'] = venues_df['Neighborhood'] 
+
+# move neighborhood column to the first column
+fixed_columns = [kl_onehot.columns[-1]] + list(kl_onehot.columns[:-1])
+kl_onehot = kl_onehot[fixed_columns]
+
+print(kl_onehot.shape)
+kl_onehot.head()
+
+
+kl_grouped = kl_onehot.groupby(["Neighborhoods"]).mean().reset_index()
+
+print(kl_grouped.shape)
+kl_grouped
+
+
+# set number of clusters
+kclusters = 3
+
+kl_clustering = kl_mall.drop(["Neighborhoods"], 1)
+
+# run k-means clustering
+kmeans = KMeans(n_clusters=kclusters, random_state=0).fit(kl_clustering)
+
+# check cluster labels generated for each row in the dataframe
+kmeans.labels_[0:10]
+array([1, 1, 1, 1, 1, 1, 2, 2, 0, 1])
+# create a new dataframe that includes the cluster as well as the top 10 venues for each neighborhood.
+kl_merged = kl_mall.copy()
+
+# add clustering labels
+kl_merged["Cluster Labels"] = kmeans.labels
+kl_merged.rename(columns={"Neighborhoods": "Neighborhood"}, inplace=True)
+kl_merged.head()
+
+# merge toronto_grouped with toronto_data to add latitude/longitude for each neighborhood
+kl_merged = kl_merged.join(kl_df.set_index("Neighborhood"), on="Neighborhood")
+
+print(kl_merged.shape)
+kl_merged.head() # check the last columns!
+
+# sort the results by Cluster Labels
+print(kl_merged.shape)
+kl_merged.sort_values(["Cluster Labels"], inplace=True)
+kl_merged
